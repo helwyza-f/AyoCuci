@@ -1,0 +1,13 @@
+go get github.com/go-sql-driver/mysql
+go get github.com/go-playground/validator/v10
+go get github.com/gin-gonic/gin
+go get github.com/golang-jwt/jwt/v4
+go get github.com/go-ldap/ldap/v3
+go get github.com/aws/aws-sdk-go
+go get github.com/SebastiaanKlippert/go-wkhtmltopdf
+go get gopkg.in/gomail.v2
+go get github.com/xuri/excelize/v2
+go get -u github.com/skip2/go-qrcode
+go get github.com/gin-contrib/cors
+go get go.mongodb.org/mongo-driver/v2/mongo
+go get github.com/joho/godotenv
