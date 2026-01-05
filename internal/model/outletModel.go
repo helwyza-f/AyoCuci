@@ -1,8 +1,9 @@
 package model
 
 import (
-    "time"
-    "gorm.io/gorm"
+	"time"
+
+	"gorm.io/gorm"
 )
 
 type Outlet struct {
@@ -35,18 +36,18 @@ type OutletInput struct {
     Kecamatan  string `json:"kecamatan" validate:"required"`
 }
 
-type RegisterWithOutletInput struct {
-    NamaLengkap         string `json:"username" validate:"required,min=3"`
-    Email               string `json:"email" validate:"required,email"`
-    Password            string `json:"password" validate:"required,min=8"`
-    ConfirmPassword     string `json:"confirmPassword" validate:"required"`
-    NomorHP             string `json:"nomor_hp" validate:"required,min=10,max=15"`
-    Group               string `json:"group" validate:"required,oneof=owner karyawan"`
-    AgreeTerms          bool   `json:"agreeTerms" validate:"required"`
-    SubscribeNewsletter bool   `json:"subscribeNewsletter"`
+// type RegisterWithOutletInput struct {
+//     NamaLengkap         string `json:"username" validate:"required,min=3"`
+//     Email               string `json:"email" validate:"required,email"`
+//     Password            string `json:"password" validate:"required,min=8"`
+//     ConfirmPassword     string `json:"confirmPassword" validate:"required"`
+//     NomorHP             string `json:"nomor_hp" validate:"required,min=10,max=15"`
+//     Group               string `json:"group" validate:"required,oneof=owner karyawan"`
+//     AgreeTerms          bool   `json:"agreeTerms" validate:"required"`
+//     SubscribeNewsletter bool   `json:"subscribeNewsletter"`
     
-    Outlet OutletInput `json:"outlet" validate:"required"`
-}
+//     Outlet OutletInput `json:"outlet" validate:"required"`
+// }
 
 type OutletList struct {
     ID         uint   `json:"id"`

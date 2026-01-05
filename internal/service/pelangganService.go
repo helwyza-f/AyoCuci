@@ -1,162 +1,162 @@
 package service
 
-import (
-    "errors"
-    "fmt"
-    "BackendFramework/internal/model"
-    "gorm.io/gorm"
-)
+// import (
+//     "errors"
+//     "fmt"
+//     "BackendFramework/internal/model"
+//     "gorm.io/gorm"
+// )
 
-type CustomerService struct {
-    DB *gorm.DB
-}
+// type CustomerService struct {
+//     DB *gorm.DB
+// }
 
-func NewCustomerService(db *gorm.DB) *CustomerService {
-    return &CustomerService{DB: db}
-}
+// func NewCustomerService(db *gorm.DB) *CustomerService {
+//     return &CustomerService{DB: db}
+// }
 
-// GetAllCustomers - Mendapatkan semua customer berdasarkan outlet
-func (s *CustomerService) GetAllCustomers(outletID uint) ([]model.CustomerResponse, error) {
-    var customers []model.Customer
-    
-    if err := s.DB.Where("cust_outlet = ?", outletID).
-        Order("cust_created DESC").
-        Find(&customers).Error; err != nil {
-        return nil, err
-    }
+// // GetAllCustomers - Mendapatkan semua customer berdasarkan outlet
+// func (s *CustomerService) GetAllCustomers(outletID uint) ([]model.CustomerResponse, error) {
+//     var customers []model.Customer
 
-    var response []model.CustomerResponse
-    for _, customer := range customers {
-        response = append(response, customer.ToResponse())
-    }
+//     if err := s.DB.Where("cust_outlet = ?", outletID).
+//         Order("cust_created DESC").
+//         Find(&customers).Error; err != nil {
+//         return nil, err
+//     }
 
-    return response, nil
-}
+//     var response []model.CustomerResponse
+//     for _, customer := range customers {
+//         response = append(response, customer.ToResponse())
+//     }
 
-// GetCustomerByID - Mendapatkan customer berdasarkan ID
-func (s *CustomerService) GetCustomerByID(id, outletID uint) (*model.CustomerResponse, error) {
-    var customer model.Customer
-    
-    if err := s.DB.Where("cust_id = ? AND cust_outlet = ?", id, outletID).
-        First(&customer).Error; err != nil {
-        if errors.Is(err, gorm.ErrRecordNotFound) {
-            return nil, errors.New("customer tidak ditemukan")
-        }
-        return nil, err
-    }
+//     return response, nil
+// }
 
-    response := customer.ToResponse()
-    return &response, nil
-}
+// // GetCustomerByID - Mendapatkan customer berdasarkan ID
+// func (s *CustomerService) GetCustomerByID(id, outletID uint) (*model.CustomerResponse, error) {
+//     var customer model.Customer
 
-// CreateCustomer - Membuat customer baru
-func (s *CustomerService) CreateCustomer(input model.CustomerInput, outletID uint, userUpdate string) (*model.CustomerResponse, error) {
-    // Validasi phone sudah ada di outlet yang sama
-    var existingCustomer model.Customer
-    if err := s.DB.Where("cust_phone = ? AND cust_outlet = ?", input.Phone, outletID).
-        First(&existingCustomer).Error; err == nil {
-        return nil, errors.New("nomor telepon sudah terdaftar")
-    }
+//     if err := s.DB.Where("cust_id = ? AND cust_outlet = ?", id, outletID).
+//         First(&customer).Error; err != nil {
+//         if errors.Is(err, gorm.ErrRecordNotFound) {
+//             return nil, errors.New("customer tidak ditemukan")
+//         }
+//         return nil, err
+//     }
 
-    customer := model.Customer{
-        OutletID:     &outletID,
-        Nama:         input.Nama,
-        Phone:        input.Phone,
-        Alamat:       input.Alamat,
-        Gender:       input.Gender,
-        TanggalLahir: input.TanggalLahir,
-        UserUpdate:   userUpdate,
-    }
+//     response := customer.ToResponse()
+//     return &response, nil
+// }
 
-    if err := s.DB.Create(&customer).Error; err != nil {
-        return nil, fmt.Errorf("gagal membuat customer: %v", err)
-    }
+// // CreateCustomer - Membuat customer baru
+// func (s *CustomerService) CreateCustomer(input model.CustomerInput, outletID uint, userUpdate string) (*model.CustomerResponse, error) {
+//     // Validasi phone sudah ada di outlet yang sama
+//     var existingCustomer model.Customer
+//     if err := s.DB.Where("cust_phone = ? AND cust_outlet = ?", input.Phone, outletID).
+//         First(&existingCustomer).Error; err == nil {
+//         return nil, errors.New("nomor telepon sudah terdaftar")
+//     }
 
-    response := customer.ToResponse()
-    return &response, nil
-}
+//     customer := model.Customer{
+//         OutletID:     &outletID,
+//         Nama:         input.Nama,
+//         Phone:        input.Phone,
+//         Alamat:       input.Alamat,
+//         Gender:       input.Gender,
+//         TanggalLahir: input.TanggalLahir,
+//         UserUpdate:   userUpdate,
+//     }
 
-// UpdateCustomer - Update customer
-func (s *CustomerService) UpdateCustomer(id, outletID uint, input model.UpdateCustomerInput, userUpdate string) (*model.CustomerResponse, error) {
-    var customer model.Customer
-    
-    if err := s.DB.Where("cust_id = ? AND cust_outlet = ?", id, outletID).
-        First(&customer).Error; err != nil {
-        if errors.Is(err, gorm.ErrRecordNotFound) {
-            return nil, errors.New("customer tidak ditemukan")
-        }
-        return nil, err
-    }
+//     if err := s.DB.Create(&customer).Error; err != nil {
+//         return nil, fmt.Errorf("gagal membuat customer: %v", err)
+//     }
 
-    // Validasi phone jika diubah
-    if input.Phone != "" && input.Phone != customer.Phone {
-        var existingCustomer model.Customer
-        if err := s.DB.Where("cust_phone = ? AND cust_outlet = ? AND cust_id != ?", 
-            input.Phone, outletID, id).
-            First(&existingCustomer).Error; err == nil {
-            return nil, errors.New("nomor telepon sudah digunakan")
-        }
-    }
+//     response := customer.ToResponse()
+//     return &response, nil
+// }
 
-    // Update fields
-    if input.Nama != "" {
-        customer.Nama = input.Nama
-    }
-    if input.Phone != "" {
-        customer.Phone = input.Phone
-    }
-    if input.Alamat != "" {
-        customer.Alamat = input.Alamat
-    }
-    if input.Gender != "" {
-        customer.Gender = input.Gender
-    }
-    if input.TanggalLahir != "" {
-        customer.TanggalLahir = input.TanggalLahir
-    }
-    customer.UserUpdate = userUpdate
+// // UpdateCustomer - Update customer
+// func (s *CustomerService) UpdateCustomer(id, outletID uint, input model.UpdateCustomerInput, userUpdate string) (*model.CustomerResponse, error) {
+//     var customer model.Customer
 
-    if err := s.DB.Save(&customer).Error; err != nil {
-        return nil, fmt.Errorf("gagal update customer: %v", err)
-    }
+//     if err := s.DB.Where("cust_id = ? AND cust_outlet = ?", id, outletID).
+//         First(&customer).Error; err != nil {
+//         if errors.Is(err, gorm.ErrRecordNotFound) {
+//             return nil, errors.New("customer tidak ditemukan")
+//         }
+//         return nil, err
+//     }
 
-    response := customer.ToResponse()
-    return &response, nil
-}
+//     // Validasi phone jika diubah
+//     if input.Phone != "" && input.Phone != customer.Phone {
+//         var existingCustomer model.Customer
+//         if err := s.DB.Where("cust_phone = ? AND cust_outlet = ? AND cust_id != ?",
+//             input.Phone, outletID, id).
+//             First(&existingCustomer).Error; err == nil {
+//             return nil, errors.New("nomor telepon sudah digunakan")
+//         }
+//     }
 
-// DeleteCustomer - Soft delete customer
-func (s *CustomerService) DeleteCustomer(id, outletID uint) error {
-    var customer model.Customer
-    
-    if err := s.DB.Where("cust_id = ? AND cust_outlet = ?", id, outletID).
-        First(&customer).Error; err != nil {
-        if errors.Is(err, gorm.ErrRecordNotFound) {
-            return errors.New("customer tidak ditemukan")
-        }
-        return err
-    }
+//     // Update fields
+//     if input.Nama != "" {
+//         customer.Nama = input.Nama
+//     }
+//     if input.Phone != "" {
+//         customer.Phone = input.Phone
+//     }
+//     if input.Alamat != "" {
+//         customer.Alamat = input.Alamat
+//     }
+//     if input.Gender != "" {
+//         customer.Gender = input.Gender
+//     }
+//     if input.TanggalLahir != "" {
+//         customer.TanggalLahir = input.TanggalLahir
+//     }
+//     customer.UserUpdate = userUpdate
 
-    if err := s.DB.Delete(&customer).Error; err != nil {
-        return fmt.Errorf("gagal menghapus customer: %v", err)
-    }
+//     if err := s.DB.Save(&customer).Error; err != nil {
+//         return nil, fmt.Errorf("gagal update customer: %v", err)
+//     }
 
-    return nil
-}
+//     response := customer.ToResponse()
+//     return &response, nil
+// }
 
-// SearchCustomers - Pencarian customer berdasarkan nama
-func (s *CustomerService) SearchCustomers(outletID uint, query string) ([]model.CustomerResponse, error) {
-    var customers []model.Customer
-    
-    if err := s.DB.Where("cust_outlet = ? AND cust_nama LIKE ?", outletID, "%"+query+"%").
-        Order("cust_created DESC").
-        Find(&customers).Error; err != nil {
-        return nil, err
-    }
+// // DeleteCustomer - Soft delete customer
+// func (s *CustomerService) DeleteCustomer(id, outletID uint) error {
+//     var customer model.Customer
 
-    var response []model.CustomerResponse
-    for _, customer := range customers {
-        response = append(response, customer.ToResponse())
-    }
+//     if err := s.DB.Where("cust_id = ? AND cust_outlet = ?", id, outletID).
+//         First(&customer).Error; err != nil {
+//         if errors.Is(err, gorm.ErrRecordNotFound) {
+//             return errors.New("customer tidak ditemukan")
+//         }
+//         return err
+//     }
 
-    return response, nil
-}
+//     if err := s.DB.Delete(&customer).Error; err != nil {
+//         return fmt.Errorf("gagal menghapus customer: %v", err)
+//     }
+
+//     return nil
+// }
+
+// // SearchCustomers - Pencarian customer berdasarkan nama
+// func (s *CustomerService) SearchCustomers(outletID uint, query string) ([]model.CustomerResponse, error) {
+//     var customers []model.Customer
+
+//     if err := s.DB.Where("cust_outlet = ? AND cust_nama LIKE ?", outletID, "%"+query+"%").
+//         Order("cust_created DESC").
+//         Find(&customers).Error; err != nil {
+//         return nil, err
+//     }
+
+//     var response []model.CustomerResponse
+//     for _, customer := range customers {
+//         response = append(response, customer.ToResponse())
+//     }
+
+//     return response, nil
+// }

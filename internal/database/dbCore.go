@@ -1,11 +1,12 @@
 package database
 
 import (
-	"log"
-	"gorm.io/driver/mysql"
-	"gorm.io/gorm"
 	"BackendFramework/internal/config"
 	"BackendFramework/internal/model"
+	"log"
+
+	"gorm.io/driver/mysql"
+	"gorm.io/gorm"
 )
 
 var DbCore *gorm.DB
@@ -42,6 +43,14 @@ func OpenAkademik() {
 		&model.NotaData{},
 		&model.Karyawan{},
 		&model.Customer{},
+		&model.ServiceCategory{},
+		&model.ServiceProduct{},
+		&model.Employee{},
+		&model.Parfume{},
+		&model.Discount{},
+		&model.Transaction{},
+		&model.OrderLog{},
+		&model.TransactionDetail{},
 
 	)
 	if err != nil {

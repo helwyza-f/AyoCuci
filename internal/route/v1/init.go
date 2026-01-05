@@ -17,13 +17,77 @@ func InitRoutes(r *gin.RouterGroup) {
 		auth.POST("/register", controller.RegisterUser)
 		auth.POST("/google/signin", controller.GoogleSignIn)
 		auth.POST("/google/register", controller.GoogleRegister)
-		auth.GET("/logout/:usrId", controller.Logout)
-		auth.POST("/refresh-access", middleware.LogUserActivity(), controller.RefreshAccessToken)
+		
+		auth.POST("/google-login", controller.GoogleLogin)
 
+		auth.POST("/refresh-access", middleware.LogUserActivity(), controller.RefreshAccessToken)
 		// OTP
 		auth.POST("/forgot-password", controller.ForgotPassword)
 		auth.POST("/verify-otp", controller.VerifyOTP)
 		auth.POST("/reset-password", controller.ResetPassword)
+	}
+
+	authProtected := r.Group("/auth")
+    authProtected.Use(middleware.JWTAuthMiddleware()) 
+    {
+        // Pindahkan ke sini agar middleware mengekstrak userID dari token
+		authProtected.GET("/profile", controller.GetProfile)
+        authProtected.POST("/update-profile", controller.UpdateProfile)
+        authProtected.GET("/logout/:usrId", controller.Logout)
+		
+    }
+
+	services := r.Group("/services")
+	{
+		services.Use(middleware.JWTAuthMiddleware(), middleware.LogUserActivity())
+		services.GET("", controller.GetServices)
+		// services.GET("/:id", controller.GetServiceByID)
+		services.POST("", controller.CreateService)
+		services.PUT("/:id", controller.UpdateService)
+		services.DELETE("/:id", controller.DeleteService)
+	}
+
+	// Customer Routes
+    customers := r.Group("/customers")
+    {
+        // Pastikan menggunakan middleware yang sama agar outlet_id tersedia di context
+        customers.Use(middleware.JWTAuthMiddleware(), middleware.LogUserActivity())
+        customers.GET("", controller.GetCustomers)      // Ambil semua pelanggan
+        customers.POST("", controller.CreateCustomer)    // Tambah pelanggan baru
+        customers.PUT("/:id", controller.UpdateCustomer) // Edit data pelanggan
+        customers.DELETE("/:id", controller.DeleteCustomer) // Hapus pelanggan
+    }
+
+	employees := r.Group("/employees")
+	{
+		employees.Use(middleware.JWTAuthMiddleware())
+		employees.GET("", controller.GetEmployees)
+		employees.POST("", controller.CreateEmployee)
+		employees.PUT("/:id", controller.UpdateEmployee) // Implementasi Updates mirip Create
+		employees.DELETE("/:id", controller.DeleteEmployee)
+	}
+
+	// Master Data Routes
+	master := r.Group("/master").Use(middleware.JWTAuthMiddleware())
+	{
+		// Parfum
+		master.GET("/parfums", controller.GetParfums)
+		master.POST("/parfums", controller.CreateParfum)
+		master.PUT("/parfums/:id", controller.UpdateParfum)
+		master.DELETE("/parfums/:id", controller.DeleteParfum)
+		
+		// Diskon
+		master.GET("/discounts", controller.GetDiscounts)
+		master.POST("/discounts", controller.CreateDiscount)
+		master.PUT("/discounts/:id", controller.UpdateDiscount)
+		master.DELETE("/discounts/:id", controller.DeleteDiscount)
+	}
+
+	trx := r.Group("/transactions").Use(middleware.JWTAuthMiddleware())
+	{
+		trx.POST("", controller.CreateTransaction) // Buat Order Baru
+		trx.GET("", controller.GetTransactions)    // List Pesanan
+		// trx.PUT("/:id/status", controller.UpdateStatus) // Nanti untuk pindah status
 	}
 
 	user := r.Group("/user")
@@ -45,6 +109,7 @@ func InitRoutes(r *gin.RouterGroup) {
 		outlet.Use(middleware.JWTAuthMiddleware())
 
 		outlet.POST("", controller.CreateOutletController)
+		outlet.POST("/create", controller.CreateOutlet)
 
 		outletWithActivity := outlet.Group("")
 		outletWithActivity.Use(middleware.LogUserActivity())
@@ -174,19 +239,19 @@ func InitRoutes(r *gin.RouterGroup) {
 		paymentMethods.PATCH("/:id/toggle-active", paymentMethodController.ToggleActiveStatus)
 	}
 
-	customerService := service.NewCustomerService(database.DbCore)
-	customerController := controller.NewCustomerController(customerService)
+	// customerService := service.NewCustomerService(database.DbCore)
+	// customerController := controller.NewCustomerController(customerService)
 
-	customer := r.Group("/customers")
-	{
-		customer.Use(middleware.JWTAuthMiddleware(), middleware.LogUserActivity())
+	// customer := r.Group("/customers")
+	// {
+	// 	customer.Use(middleware.JWTAuthMiddleware(), middleware.LogUserActivity())
 
-		customer.GET("", customerController.GetAllCustomers)
-		customer.GET("/:id", customerController.GetCustomerByID)
-		customer.POST("", customerController.CreateCustomer)
-		customer.PUT("/:id", customerController.UpdateCustomer)
-		customer.DELETE("/:id", customerController.DeleteCustomer)
-	}
+	// 	customer.GET("", customerController.GetAllCustomers)
+	// 	customer.GET("/:id", customerController.GetCustomerByID)
+	// 	customer.POST("", customerController.CreateCustomer)
+	// 	customer.PUT("/:id", customerController.UpdateCustomer)
+	// 	customer.DELETE("/:id", customerController.DeleteCustomer)
+	// }
 
 	misc := r.Group("/misc")
 	{

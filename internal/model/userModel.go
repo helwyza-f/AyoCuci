@@ -119,8 +119,22 @@ type RegisterInput struct {
 	Group               string  `json:"group" validate:"required,oneof=owner karyawan"`
 	AgreeTerms          bool    `json:"agreeTerms" validate:"required,eq=true"`
 	SubscribeNewsletter bool    `json:"subscribeNewsletter"`
-	ReferralCode        *string `json:"referralCode" validate:"omitempty,min=8,max=20"`
-	Source              *string `json:"source" validate:"omitempty,oneof=instagram tiktok facebook referral google youtube others"`
+	ReferralCode *string `json:"referralCode" validate:"omitempty,max=20"`
+	Source *string `json:"source" validate:"omitempty"`
+}
+
+type RegisterWithOutletInput struct {
+    NamaLengkap         string      `json:"username" validate:"required,min=3"`
+    Email               string      `json:"email" validate:"required,email"`
+    Password            string      `json:"password" validate:"required,min=8"`
+    ConfirmPassword     string      `json:"confirmPassword" validate:"required"`
+    NomorHP             string      `json:"nomor_hp" validate:"required"`
+    Group               string      `json:"group" validate:"required,oneof=owner karyawan"`
+    AgreeTerms          bool        `json:"agreeTerms" validate:"required"`
+    ReferralCode        *string     `json:"referralCode" validate:"omitempty"`
+    Source              *string     `json:"source" validate:"omitempty"`
+    // Tambahkan field OutletInput di sini
+    Outlet              OutletInput `json:"outlet" validate:"required"`
 }
 
 type GoogleRegisterInput struct {

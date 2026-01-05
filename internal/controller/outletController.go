@@ -1,12 +1,14 @@
 package controller
 
 import (
+	"BackendFramework/internal/database"
 	"BackendFramework/internal/model"
 	"BackendFramework/internal/service"
 	"fmt"
-	"github.com/gin-gonic/gin"
 	"net/http"
 	"strconv"
+
+	"github.com/gin-gonic/gin"
 )
 
 func CreateOutletController(c *gin.Context) {
@@ -102,6 +104,60 @@ func CreateOutletController(c *gin.Context) {
         "data":    outlet,
     })
 }
+
+// internal/controller/outlet_controller.go
+
+func CreateOutlet(c *gin.Context) {
+    var input model.OutletInput
+    if err := c.ShouldBindJSON(&input); err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": "Data tidak valid"})
+        return
+    }
+
+    // 1. Ambil userID dari context (di sini tipenya interface{} berisi string)
+    userIDInterface, exists := c.Get("userID")
+    if !exists {
+        c.JSON(http.StatusUnauthorized, gin.H{"error": "User tidak teridentifikasi"})
+        return
+    }
+
+    // 2. Konversi interface{} ke string, lalu string ke uint
+    userIDStr := userIDInterface.(string)
+    userIDUint, err := strconv.ParseUint(userIDStr, 10, 32)
+    if err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": "Format User ID salah"})
+        return
+    }
+
+    newOutlet := model.Outlet{
+        UserID:     uint(userIDUint), // Gunakan hasil konversi yang sudah jadi uint
+        NamaOutlet: input.NamaOutlet,
+        Alamat:     input.Alamat,
+        NomorHP:    input.NomorHP,
+        Provinsi:   input.Provinsi, // Pastikan field ini ada di model
+        Kota:       input.Kota,     // Pastikan field ini ada di model
+        Kecamatan:  input.Kecamatan, // Pastikan field ini ada di model
+        IsAktif:    "active",
+    }
+
+    if err := database.DbCore.Create(&newOutlet).Error; err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal menyimpan outlet"})
+        return
+    }
+
+	err = database.DbCore.Model(&model.User{}).Where("id = ?", userIDUint).Update("outlet_id", newOutlet.ID).Error
+    if err != nil {
+        // Log error saja, jangan gagalkan proses karena outlet sudah terlanjur dibuat
+        fmt.Println("Gagal update outlet_id di user:", err)
+    }
+
+    c.JSON(http.StatusCreated, gin.H{
+        "message": "Outlet berhasil dibuat",
+        "outlet_id": newOutlet.ID,
+    })
+}
+
+
 func getUserIDFromContext(c *gin.Context) (uint, error) {
 	userIDInterface, exists := c.Get("userID")
 	if !exists {

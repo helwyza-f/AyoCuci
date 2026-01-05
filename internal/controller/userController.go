@@ -29,25 +29,27 @@ type GoogleUserInfo struct {
 
 // RegisterUser handles standard email registration
 func RegisterUser(c *gin.Context) {
-	var input model.RegisterInput
+	var input model.RegisterWithOutletInput
 
-	if err := c.ShouldBindJSON(&input); err != nil {
-		c.JSON(http.StatusBadRequest, model.ErrorResponse{
-			Success: false,
-			Error:   "Invalid request body",
-			Details: err.Error(),
-		})
-		return
-	}
+	// ShouldBindJSON akan menangkap data user DAN data outlet sekaligus
+    if err := c.ShouldBindJSON(&input); err != nil {
+        c.JSON(http.StatusBadRequest, model.ErrorResponse{
+            Success: false,
+            Error:   "Invalid request body",
+            Details: err.Error(),
+        })
+        return
+    }
 
-	if err := validate.Struct(input); err != nil {
-		c.JSON(http.StatusBadRequest, model.ErrorResponse{
-			Success: false,
-			Error:   "Validation failed",
-			Details: err.Error(),
-		})
-		return
-	}
+	// Validate sekarang juga mengecek isi field outlet (validate:"required")
+    if err := validate.Struct(input); err != nil {
+        c.JSON(http.StatusBadRequest, model.ErrorResponse{
+            Success: false,
+            Error:   "Validation failed",
+            Details: err.Error(),
+        })
+        return
+    }
 
 	if input.Password != input.ConfirmPassword {
 		c.JSON(http.StatusBadRequest, model.ErrorResponse{
@@ -57,7 +59,7 @@ func RegisterUser(c *gin.Context) {
 		return
 	}
 
-	user, err := service.RegisterUser(&input)
+	user, err := service.RegisterWithOutlet(&input)
 	if err != nil {
 		handleServiceError(c, err, "Failed to register user")
 		return

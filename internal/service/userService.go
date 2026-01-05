@@ -45,15 +45,18 @@ func GetOneUser(userId string) *model.UserList {
 	return &user
 }
 
+// --- PENCARIAN USER ---
+
 func GetOneUserByEmail(userEmail string) *model.User {
 	var user model.User
-	err := database.DbCore.Where("email = ? AND deleted_at IS NULL", userEmail).First(&user).Error
+	// Menggunakan Find agar tidak muncul error "record not found" di log jika email belum terdaftar
+	err := database.DbCore.Where("email = ? AND deleted_at IS NULL", userEmail).Limit(1).Find(&user).Error
 
-	if errors.Is(err, gorm.ErrRecordNotFound) {
+	if err != nil {
+		middleware.LogError(err, "Database Query Error (Email)")
 		return nil
 	}
-	if err != nil {
-		middleware.LogError(err, "Data Scan Error (Email)")
+	if user.ID == 0 {
 		return nil
 	}
 	return &user
@@ -61,13 +64,13 @@ func GetOneUserByEmail(userEmail string) *model.User {
 
 func GetOneUserByPhone(phone string) *model.User {
 	var user model.User
-	err := database.DbCore.Where("nomor_hp = ? AND deleted_at IS NULL", phone).First(&user).Error
+	err := database.DbCore.Where("nomor_hp = ? AND deleted_at IS NULL", phone).Limit(1).Find(&user).Error
 
-	if errors.Is(err, gorm.ErrRecordNotFound) {
+	if err != nil {
+		middleware.LogError(err, "Database Query Error (Nomor HP)")
 		return nil
 	}
-	if err != nil {
-		middleware.LogError(err, "Data Scan Error (Nomor HP)")
+	if user.ID == 0 {
 		return nil
 	}
 	return &user
@@ -75,13 +78,14 @@ func GetOneUserByPhone(phone string) *model.User {
 
 func GetOneUserByUsername(username string) *model.User {
 	var user model.User
-	err := database.DbCore.Where("nama_lengkap = ? AND deleted_at IS NULL", username).First(&user).Error
+	// Menghilangkan log "record not found" saat pengecekan username yang tersedia
+	err := database.DbCore.Where("nama_lengkap = ? AND deleted_at IS NULL", username).Limit(1).Find(&user).Error
 
-	if errors.Is(err, gorm.ErrRecordNotFound) {
+	if err != nil {
+		middleware.LogError(err, "Database Query Error (Username)")
 		return nil
 	}
-	if err != nil {
-		middleware.LogError(err, "Data Scan Error (Username)")
+	if user.ID == 0 {
 		return nil
 	}
 	return &user
@@ -89,13 +93,13 @@ func GetOneUserByUsername(username string) *model.User {
 
 func GetOneUserByGoogleID(googleID string) *model.User {
 	var user model.User
-	err := database.DbCore.Where("google_id = ? AND deleted_at IS NULL", googleID).First(&user).Error
+	err := database.DbCore.Where("google_id = ? AND deleted_at IS NULL", googleID).Limit(1).Find(&user).Error
 
-	if errors.Is(err, gorm.ErrRecordNotFound) {
+	if err != nil {
+		middleware.LogError(err, "Database Query Error (Google ID)")
 		return nil
 	}
-	if err != nil {
-		middleware.LogError(err, "Data Scan Error (Google ID)")
+	if user.ID == 0 {
 		return nil
 	}
 	return &user
@@ -103,13 +107,13 @@ func GetOneUserByGoogleID(googleID string) *model.User {
 
 func GetOneUserByReferralCode(referralCode string) *model.User {
 	var user model.User
-	err := database.DbCore.Where("referral_code = ? AND deleted_at IS NULL", referralCode).First(&user).Error
+	err := database.DbCore.Where("referral_code = ? AND deleted_at IS NULL", referralCode).Limit(1).Find(&user).Error
 
-	if errors.Is(err, gorm.ErrRecordNotFound) {
+	if err != nil {
+		middleware.LogError(err, "Database Query Error (Referral Code)")
 		return nil
 	}
-	if err != nil {
-		middleware.LogError(err, "Data Scan Error (Referral Code)")
+	if user.ID == 0 {
 		return nil
 	}
 	return &user
@@ -223,6 +227,8 @@ func RegisterUser(userData *model.RegisterInput) (*model.User, error) {
 
 	// Cek username sudah digunakan
 	if userData.NamaLengkap != "" {
+		// Jika GetOneUserByUsername mengembalikan error 'record not found' yang tidak ditangani,
+		// maka pengecekan ini bisa menganggap terjadi kesalahan fatal.
 		if existingUsername := GetOneUserByUsername(userData.NamaLengkap); existingUsername != nil {
 			return nil, errors.New("username sudah digunakan")
 		}
@@ -303,6 +309,63 @@ func RegisterUser(userData *model.RegisterInput) (*model.User, error) {
 		user.ID, user.Email, user.ReferralCode, referredBy))
 
 	return &user, nil
+}
+
+
+// internal/service/userService.go
+
+func RegisterWithOutlet(userData *model.RegisterWithOutletInput) (*model.User, error) {
+    // Mulai Transaksi Database
+    tx := database.DbCore.Begin()
+
+    // 1. Hash Password
+    hashedPassword, _ := bcrypt.GenerateFromPassword([]byte(userData.Password), bcrypt.DefaultCost)
+
+    // 2. Buat User
+    user := model.User{
+        NamaLengkap: userData.NamaLengkap,
+        Email:       strings.ToLower(userData.Email),
+        Password:    string(hashedPassword),
+        NomorHP:     userData.NomorHP,
+        Group:       userData.Group,
+        AgreeTerms:  userData.AgreeTerms,
+        Source:      userData.Source,
+        ReferredBy:  userData.ReferralCode,
+        IsAktif:     "active",
+    }
+
+    if err := tx.Create(&user).Error; err != nil {
+        tx.Rollback()
+        return nil, err
+    }
+
+    // 3. Buat Outlet secara otomatis
+    outlet := model.Outlet{
+        UserID:     user.ID,
+        NamaOutlet: userData.Outlet.NamaOutlet,
+        Alamat:     userData.Outlet.Alamat,
+        Provinsi:   userData.Outlet.Provinsi,
+        Kota:       userData.Outlet.Kota,
+        Kecamatan:  userData.Outlet.Kecamatan,
+        NomorHP:    userData.Outlet.NomorHP,
+        IsAktif:    "active",
+    }
+
+    if err := tx.Create(&outlet).Error; err != nil {
+        tx.Rollback()
+        return nil, err
+    }
+
+    // 4. MANIPULASI: Update field outlet_id di tabel User
+    // Sekarang kita hubungkan user tersebut ke outlet_id yang baru saja dibuat
+    if err := tx.Model(&user).Update("outlet_id", outlet.ID).Error; err != nil {
+        tx.Rollback()
+        return nil, err
+    }
+
+    // Commit jika semua sukses
+    tx.Commit()
+    return &user, nil
 }
 
 func InsertUser(userData *model.RegisterInput) error {

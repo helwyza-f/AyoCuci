@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"strings"
@@ -10,6 +11,7 @@ import (
 	"github.com/go-ldap/ldap/v3"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"golang.org/x/crypto/bcrypt"
+	"google.golang.org/api/idtoken"
 
 	"BackendFramework/internal/config"
 	"BackendFramework/internal/database"
@@ -106,6 +108,229 @@ func saveTokenData(userID string, user *model.User, accessToken, refreshToken, l
 	}
 
 	return service.UpsertTokenData(userID, tokenData)
+}
+
+
+type googleLoginBody struct {
+    IDToken string `json:"id_token" binding:"required"`
+}
+
+type updateProfileBody struct {
+	NomorHP    string `json:"nomor_hp" binding:"required,min=10,max=15"`
+	Password   string `json:"password" binding:"required,min=8"` // Tambahkan password
+	Source     string `json:"source" binding:"required"`
+	AgreeTerms bool   `json:"agree_terms" binding:"required"`
+}
+
+type ResetPasswordInput struct {
+    NomorHP     string `json:"nomor_hp" binding:"required"`
+    NewPassword string `json:"new_password" binding:"required,min=6"`
+}
+
+func GoogleLogin(c *gin.Context) {
+    var body googleLoginBody
+    if err := c.ShouldBindJSON(&body); err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"code": 400, "error": "ID Token Google diperlukan"})
+        return
+    }
+
+    webClientID := "975217456398-ibka5941lculfms7d3eudd82dgm1ptdq.apps.googleusercontent.com"
+    payload, err := idtoken.Validate(context.Background(), body.IDToken, webClientID)
+    if err != nil {
+        middleware.LogError(err, "Gagal validasi Google ID Token")
+        c.JSON(http.StatusUnauthorized, gin.H{"code": 401, "error": "Token Google tidak valid"})
+        return
+    }
+
+    email := strings.ToLower(payload.Claims["email"].(string))
+    fullName := payload.Claims["name"].(string)
+    googleID := payload.Subject
+
+    user := service.GetOneUserByEmail(email)
+    
+    if user == nil {
+        user = &model.User{
+            Email:        email,
+            NamaLengkap:  fullName,
+            IsAktif:      "active",
+            Group:        "owner",
+            AuthProvider: "google",
+            GoogleID:     &googleID,
+        }
+        if err := database.DbCore.Create(user).Error; err != nil {
+            c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "error": "Gagal sinkronisasi akun"})
+            return
+        }
+    } else if user.GoogleID == nil {
+        database.DbCore.Model(user).Update("google_id", googleID)
+    }
+
+    if user.IsAktif != "active" {
+        c.JSON(http.StatusForbidden, gin.H{"code": 403, "error": "Akun tidak aktif"})
+        return
+    }
+
+    // Logic Cek Outlet
+    var outletCount int64
+    database.DbCore.Model(&model.Outlet{}).Where("user_id = ?", user.ID).Count(&outletCount)
+    hasOutlet := outletCount > 0
+    var outletID uint = 0
+    if hasOutlet {
+        var outlet model.Outlet
+        if err := database.DbCore.Where("user_id = ?", user.ID).First(&outlet).Error; err == nil {
+            outletID = outlet.ID
+        }
+    }
+
+    userID := fmt.Sprintf("%d", user.ID)
+    accessToken, refreshToken, err := generateTokens(userID, outletID)
+    if err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "error": "Gagal generate session"})
+        return
+    }
+
+    // Simpan ke MongoDB (Tracking)
+    tokenData := bson.M{
+        "user_id": userID, "email": user.Email, "username": user.NamaLengkap,
+        "access_token": accessToken, "refresh_token": refreshToken,
+        "login_method": "google", "updated_at": time.Now(),
+    }
+    service.UpsertTokenData(userID, tokenData)
+
+    // RESPONSE UTAMA
+    c.JSON(http.StatusOK, gin.H{
+        "code":    http.StatusOK,
+        "message": "Login Google berhasil",
+        "token":   accessToken,
+        "data": gin.H{
+            "user_id":       userID,
+            "username":      user.NamaLengkap,
+            "email":         user.Email,
+            "access_token":  accessToken,
+            "refresh_token": refreshToken,
+            "has_outlet":    hasOutlet,
+            "outlet_id":     outletID,
+            "referral_code": user.ReferralCode,
+        },
+        "user": user.ToUserResponse(), // Sertakan nomor_hp & agree_terms untuk dicek Flutter
+    })
+}
+
+func UpdateProfile(c *gin.Context) {
+	var body updateProfileBody
+	if err := c.ShouldBindJSON(&body); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Data tidak valid atau password kurang panjang"})
+		return
+	}
+
+	val, exists := c.Get("userID")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Sesi tidak ditemukan"})
+		return
+	}
+
+	userID := fmt.Sprintf("%v", val)
+
+	// Hash password baru agar user bisa login manual nantinya
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(body.Password), bcrypt.DefaultCost)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal enkripsi password"})
+		return
+	}
+
+	var user model.User
+	if err := database.DbCore.Where("id = ?", userID).First(&user).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "User tidak ditemukan"})
+		return
+	}
+
+	// Update field yang sebelumnya kosong di User ID 2
+	user.NomorHP = body.NomorHP
+	user.Password = string(hashedPassword) // Sekarang punya password
+	user.Source = &body.Source
+	user.AgreeTerms = body.AgreeTerms
+	user.UpdatedAt = time.Now()
+
+	if err := database.DbCore.Save(&user).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal update profil"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"code":    200,
+		"message": "Profil dan Password berhasil diatur",
+		"user":    user.ToUserResponse(),
+	})
+}
+
+// internal/controller/auth_controller.go
+
+func GetProfile(c *gin.Context) {
+    // 1. Ambil userID dari context (hasil JWTAuthMiddleware)
+    // Gunakan key "userID" (string) atau "user_id" (uint) sesuai middleware anda
+    val, exists := c.Get("userID")
+    if !exists {
+        c.JSON(http.StatusUnauthorized, gin.H{"error": "Sesi tidak ditemukan"})
+        return
+    }
+
+    userID := fmt.Sprintf("%v", val)
+
+    // 2. Query User beserta field outlet_id-nya
+    var user model.User
+    if err := database.DbCore.Where("id = ?", userID).First(&user).Error; err != nil {
+        c.JSON(http.StatusNotFound, gin.H{"error": "User tidak ditemukan"})
+        return
+    }
+
+	// 3. Response: has_outlet true jika outlet_id tidak nol/null
+	c.JSON(http.StatusOK, gin.H{
+		"code":    200,
+		"message": "Data profil berhasil diambil",
+		"data": gin.H{
+			"user_id":    user.ID,
+			"username":   user.NamaLengkap,
+			"email":      user.Email,
+			"nomor_hp":   user.NomorHP,
+			"outlet_id":  user.OutletID, // Nilai yang kita manipulasi di register/create
+			"has_outlet": user.OutletID != nil && *user.OutletID != 0,
+		},
+	})
+}
+
+func ResetPassword(c *gin.Context) {
+    var input ResetPasswordInput
+
+    // 1. Bind JSON input
+    if err := c.ShouldBindJSON(&input); err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": "Input tidak valid", "details": err.Error()})
+        return
+    }
+
+    // 2. Cari user berdasarkan nomor HP
+    var user model.User
+    if err := database.DbCore.Where("nomor_hp = ?", input.NomorHP).First(&user).Error; err != nil {
+        c.JSON(http.StatusNotFound, gin.H{"error": "Nomor WhatsApp tidak terdaftar"})
+        return
+    }
+
+    // 3. Hash password baru
+    hashedPassword, err := bcrypt.GenerateFromPassword([]byte(input.NewPassword), bcrypt.DefaultCost)
+    if err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal memproses password"})
+        return
+    }
+
+    // 4. Update password di database
+    if err := database.DbCore.Model(&user).Update("password", string(hashedPassword)).Error; err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal memperbarui password"})
+        return
+    }
+
+    c.JSON(http.StatusOK, gin.H{
+        "success": true,
+        "message": "Password berhasil diperbarui, silakan login kembali",
+    })
 }
 
 func Login(c *gin.Context) {
@@ -625,66 +850,66 @@ func VerifyOTP(c *gin.Context) {
 	})
 }
 
-func ResetPassword(c *gin.Context) {
-	var input resetPasswordInput
-	if err := c.ShouldBindJSON(&input); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"code":  http.StatusBadRequest,
-			"error": "Data tidak valid",
-		})
-		return
-	}
+// func ResetPassword(c *gin.Context) {
+// 	var input resetPasswordInput
+// 	if err := c.ShouldBindJSON(&input); err != nil {
+// 		c.JSON(http.StatusBadRequest, gin.H{
+// 			"code":  http.StatusBadRequest,
+// 			"error": "Data tidak valid",
+// 		})
+// 		return
+// 	}
 
-	if input.NewPassword != input.ConfirmPassword {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"code":  http.StatusBadRequest,
-			"error": "Password dan konfirmasi password tidak cocok",
-		})
-		return
-	}
+// 	if input.NewPassword != input.ConfirmPassword {
+// 		c.JSON(http.StatusBadRequest, gin.H{
+// 			"code":  http.StatusBadRequest,
+// 			"error": "Password dan konfirmasi password tidak cocok",
+// 		})
+// 		return
+// 	}
 
-	otpService := service.NewOTPService(database.DbCore)
-	valid, err := otpService.VerifyOTP(input.NomorHP, input.Code, "forgot_password")
-	if err != nil || !valid {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"code":  http.StatusBadRequest,
-			"error": "Kode OTP tidak valid atau sudah kadaluarsa",
-		})
-		return
-	}
+// 	otpService := service.NewOTPService(database.DbCore)
+// 	valid, err := otpService.VerifyOTP(input.NomorHP, input.Code, "forgot_password")
+// 	if err != nil || !valid {
+// 		c.JSON(http.StatusBadRequest, gin.H{
+// 			"code":  http.StatusBadRequest,
+// 			"error": "Kode OTP tidak valid atau sudah kadaluarsa",
+// 		})
+// 		return
+// 	}
 
-	user := service.GetOneUserByPhone(input.NomorHP)
-	if user == nil {
-		c.JSON(http.StatusNotFound, gin.H{
-			"code":  http.StatusNotFound,
-			"error": "User tidak ditemukan",
-		})
-		return
-	}
+// 	user := service.GetOneUserByPhone(input.NomorHP)
+// 	if user == nil {
+// 		c.JSON(http.StatusNotFound, gin.H{
+// 			"code":  http.StatusNotFound,
+// 			"error": "User tidak ditemukan",
+// 		})
+// 		return
+// 	}
 
-	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(input.NewPassword), bcrypt.DefaultCost)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"code":  http.StatusInternalServerError,
-			"error": "Gagal mengenkripsi password",
-		})
-		return
-	}
+// 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(input.NewPassword), bcrypt.DefaultCost)
+// 	if err != nil {
+// 		c.JSON(http.StatusInternalServerError, gin.H{
+// 			"code":  http.StatusInternalServerError,
+// 			"error": "Gagal mengenkripsi password",
+// 		})
+// 		return
+// 	}
 
-	user.Password = string(hashedPassword)
-	if err := database.DbCore.Save(&user).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"code":  http.StatusInternalServerError,
-			"error": "Gagal mereset password",
-		})
-		return
-	}
+// 	user.Password = string(hashedPassword)
+// 	if err := database.DbCore.Save(&user).Error; err != nil {
+// 		c.JSON(http.StatusInternalServerError, gin.H{
+// 			"code":  http.StatusInternalServerError,
+// 			"error": "Gagal mereset password",
+// 		})
+// 		return
+// 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"code":    http.StatusOK,
-		"message": "Password berhasil direset",
-	})
-}
+// 	c.JSON(http.StatusOK, gin.H{
+// 		"code":    http.StatusOK,
+// 		"message": "Password berhasil direset",
+// 	})
+// }
 
 func ValidateReferralCode(c *gin.Context) {
 	referralCode := c.Query("code")
