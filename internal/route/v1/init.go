@@ -84,11 +84,16 @@ func InitRoutes(r *gin.RouterGroup) {
 	}
 
 	trx := r.Group("/transactions").Use(middleware.JWTAuthMiddleware())
-	{
-		trx.POST("", controller.CreateTransaction) // Buat Order Baru
-		trx.GET("", controller.GetTransactions)    // List Pesanan
-		// trx.PUT("/:id/status", controller.UpdateStatus) // Nanti untuk pindah status
-	}
+{
+    trx.POST("", controller.CreateTransaction)
+    trx.GET("", controller.GetTransactions)
+    // TAMBAHKAN INI: Route untuk detail per ID
+    trx.GET("/:id", controller.GetTransactionDetail) 
+    trx.PUT("/:id/status", controller.UpdateStatus)
+	trx.PUT("/:id/payment",controller.ProcessPayment)
+	trx.PUT("/:id/items/:item_id/status", controller.UpdateStatusItem) // Route untuk pengambilan parsial
+	trx.POST("/:id/send-notif", controller.SendManualNotification)
+}
 
 	user := r.Group("/user")
 	{

@@ -504,7 +504,7 @@ func GoogleRegister(c *gin.Context) {
 func GetAllUsers(c *gin.Context) {
 	users := service.GetAllUsers()
 
-	if users == nil || len(users) == 0 {
+	if len(users) == 0 {
 		c.JSON(http.StatusOK, gin.H{
 			"success": true,
 			"data":    []model.UserList{},
